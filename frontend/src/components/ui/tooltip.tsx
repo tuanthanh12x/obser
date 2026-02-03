@@ -39,18 +39,46 @@ const Tooltip = ({ children }: TooltipProps) => {
   )
 }
 
+interface TooltipTriggerProps extends React.HTMLAttributes<HTMLDivElement> {
+  asChild?: boolean
+}
+
 const TooltipTrigger = React.forwardRef<
   HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, children, ...props }, ref) => {
+  TooltipTriggerProps
+>(({ className, children, asChild, ...props }, ref) => {
   const { setOpen } = useTooltipContext()
+  
+  const handleMouseEnter = () => setOpen(true)
+  const handleMouseLeave = () => setOpen(false)
+  
+  if (asChild && React.isValidElement(children)) {
+    const childElement = children as React.ReactElement<any>
+    const childProps = childElement.props as { onMouseEnter?: (e: React.MouseEvent) => void; onMouseLeave?: (e: React.MouseEvent) => void }
+    return React.cloneElement(childElement, {
+      ref,
+      onMouseEnter: (e: React.MouseEvent) => {
+        handleMouseEnter()
+        if (childProps.onMouseEnter) {
+          childProps.onMouseEnter(e)
+        }
+      },
+      onMouseLeave: (e: React.MouseEvent) => {
+        handleMouseLeave()
+        if (childProps.onMouseLeave) {
+          childProps.onMouseLeave(e)
+        }
+      },
+      ...props,
+    })
+  }
   
   return (
     <div
       ref={ref}
       className={className}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       {...props}
     >
       {children}

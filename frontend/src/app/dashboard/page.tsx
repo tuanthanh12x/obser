@@ -158,6 +158,7 @@ interface ServiceLog {
 
 export default function Dashboard() {
   const [theme, setTheme] = useState<"dark" | "light">("dark")
+  const [selectedChat, setSelectedChat] = useState<number | null>(null)
   const [systemStatus, setSystemStatus] = useState(85)
   const [cpuUsage, setCpuUsage] = useState(42)
   const [memoryUsage, setMemoryUsage] = useState(68)
@@ -525,20 +526,21 @@ export default function Dashboard() {
           }
 
           // enrich database signals
-          if (comp.id === "database" && comp.details) {
-            const lag = Math.max(0, (comp.details.replicationLagSeconds ?? 0) + (Math.random() - 0.5) * 2)
+          if (comp.id === "database" && comp.details && "engine" in comp.details) {
+            const dbDetails = comp.details as DatabaseDetails
+            const lag = Math.max(0, (dbDetails.replicationLagSeconds ?? 0) + (Math.random() - 0.5) * 2)
             const replicaReady = Math.max(
               0,
-              Math.min(comp.details.replicaCount, comp.details.replicaReady + (Math.random() > 0.98 ? -1 : 0))
+              Math.min(dbDetails.replicaCount, dbDetails.replicaReady + (Math.random() > 0.98 ? -1 : 0))
             )
-            const backupAgeMin = comp.details.lastBackupAt
-              ? (Date.now() - comp.details.lastBackupAt.getTime()) / 60000
+            const backupAgeMin = dbDetails.lastBackupAt
+              ? (Date.now() - dbDetails.lastBackupAt.getTime()) / 60000
               : 9999
 
             // derive health from DB-specific signals
             const backupBad =
-              backupAgeMin > (comp.details.backupRpoMinutes ?? 60) || comp.details.lastBackupStatus === "failed"
-            const replBad = replicaReady < comp.details.replicaCount || lag > 30
+              backupAgeMin > (dbDetails.backupRpoMinutes ?? 60) || dbDetails.lastBackupStatus === "failed"
+            const replBad = replicaReady < dbDetails.replicaCount || lag > 30
 
             const status: Health =
               backupBad || replBad || base.errors > 50 || base.responseTime > 500
@@ -551,18 +553,18 @@ export default function Dashboard() {
               ...base,
               status,
               details: {
-                ...comp.details,
+                ...dbDetails,
                 replicationLagSeconds: Number(lag.toFixed(1)),
                 replicaReady,
                 connectionsUsed: Math.max(
                   0,
                   Math.min(
-                    comp.details.connectionsMax ?? 300,
-                    (comp.details.connectionsUsed ?? 0) + Math.floor((Math.random() - 0.5) * 10)
+                    dbDetails.connectionsMax ?? 300,
+                    (dbDetails.connectionsUsed ?? 0) + Math.floor((Math.random() - 0.5) * 10)
                   )
                 ),
-                p95QueryMs: Math.max(1, Math.floor((comp.details.p95QueryMs ?? 10) + (Math.random() - 0.5) * 5)),
-                slowQueries: Math.max(0, (comp.details.slowQueries ?? 0) + (Math.random() > 0.97 ? 1 : 0)),
+                p95QueryMs: Math.max(1, Math.floor((dbDetails.p95QueryMs ?? 10) + (Math.random() - 0.5) * 5)),
+                slowQueries: Math.max(0, (dbDetails.slowQueries ?? 0) + (Math.random() > 0.97 ? 1 : 0)),
               },
             }
           }
@@ -666,6 +668,10 @@ export default function Dashboard() {
     const particles: Particle[] = []
     const particleCount = 100
 
+    // Store references after null checks - TypeScript understands these are non-null
+    const canvasEl = canvas
+    const ctxEl = ctx
+
     class Particle {
       x: number
       y: number
@@ -675,8 +681,8 @@ export default function Dashboard() {
       color: string
 
       constructor() {
-        this.x = Math.random() * canvas.width
-        this.y = Math.random() * canvas.height
+        this.x = Math.random() * canvasEl.width
+        this.y = Math.random() * canvasEl.height
         this.size = Math.random() * 3 + 1
         this.speedX = (Math.random() - 0.5) * 0.5
         this.speedY = (Math.random() - 0.5) * 0.5
@@ -687,18 +693,17 @@ export default function Dashboard() {
         this.x += this.speedX
         this.y += this.speedY
 
-        if (this.x > canvas.width) this.x = 0
-        if (this.x < 0) this.x = canvas.width
-        if (this.y > canvas.height) this.y = 0
-        if (this.y < 0) this.y = canvas.height
+        if (this.x > canvasEl.width) this.x = 0
+        if (this.x < 0) this.x = canvasEl.width
+        if (this.y > canvasEl.height) this.y = 0
+        if (this.y < 0) this.y = canvasEl.height
       }
 
       draw() {
-        if (!ctx) return
-        ctx.fillStyle = this.color
-        ctx.beginPath()
-        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2)
-        ctx.fill()
+        ctxEl.fillStyle = this.color
+        ctxEl.beginPath()
+        ctxEl.arc(this.x, this.y, this.size, 0, Math.PI * 2)
+        ctxEl.fill()
       }
     }
 
@@ -1491,80 +1496,7 @@ export default function Dashboard() {
               </div>
 
               {/* Communications */}
-              <Card className="bg-slate-900/50 border-slate-700/50 backdrop-blur-sm overflow-hidden">
-                <CardHeader className="pb-2 flex flex-row items-center justify-between border-b border-slate-700/50">
-                  <CardTitle className="text-slate-100 flex items-center text-base">
-                    <MessageSquare className="mr-2 h-4 w-4 text-blue-500" />
-                    Communications Log
-                  </CardTitle>
-                  <Badge variant="outline" className="bg-blue-500/20 text-blue-400 border-blue-500/50 text-xs">
-                    <div className="h-1.5 w-1.5 rounded-full bg-blue-500 mr-1.5 animate-pulse"></div>
-                    4 New
-                  </Badge>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="max-h-[400px] overflow-y-auto">
-                    <div className="p-4 space-y-2">
-                      <CommunicationItem
-                        sender="System Administrator"
-                        time="15:42:12"
-                        message="Scheduled maintenance will occur at 02:00. All systems will be temporarily offline."
-                        avatar="/placeholder.svg?height=40&width=40"
-                        type="maintenance"
-                        unread
-                      />
-                      <CommunicationItem
-                        sender="Security Module"
-                        time="14:30:45"
-                        message="Unusual login attempt blocked from IP 192.168.1.45. Added to watchlist."
-                        avatar="/placeholder.svg?height=40&width=40"
-                        type="security"
-                        unread
-                      />
-                      <CommunicationItem
-                        sender="Network Control"
-                        time="12:15:33"
-                        message="Bandwidth allocation adjusted for priority services during peak hours."
-                        avatar="/placeholder.svg?height=40&width=40"
-                        type="network"
-                        unread
-                      />
-                      <CommunicationItem
-                        sender="Data Center"
-                        time="09:05:18"
-                        message="Backup verification complete. All data integrity checks passed."
-                        avatar="/placeholder.svg?height=40&width=40"
-                        type="backup"
-                        unread
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-                <CardFooter className="border-t border-slate-700/50 pt-3 pb-3">
-                  <div className="flex items-center w-full space-x-2">
-                    <div className="relative flex-1">
-                      <input
-                        type="text"
-                        placeholder="Type a message or command..."
-                        className="w-full bg-slate-800/50 border border-slate-700/50 rounded-md px-3 py-2 pr-10 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50 transition-all"
-                      />
-                      <Terminal className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
-                    </div>
-                    <Button
-                      size="icon"
-                      className="bg-blue-600 hover:bg-blue-700 text-white h-9 w-9 transition-all hover:scale-105"
-                    >
-                      <Mic className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      className="bg-cyan-600 hover:bg-cyan-700 text-white h-9 w-9 transition-all hover:scale-105"
-                    >
-                      <MessageSquare className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </CardFooter>
-              </Card>
+              <CommunicationTimelineView selectedChat={selectedChat} onChatSelect={setSelectedChat} />
             </div>
           </div>
 
@@ -2009,6 +1941,248 @@ function AlertItem({
   )
 }
 
+// Communication Timeline View Component
+interface CommunicationMessage {
+  id: number
+  sender: string
+  time: string
+  message: string
+  avatar: string
+  type?: "maintenance" | "security" | "network" | "backup" | "info" | "alert"
+  unread?: boolean
+  fullMessage?: string
+}
+
+function CommunicationTimelineView({
+  selectedChat,
+  onChatSelect,
+}: {
+  selectedChat: number | null
+  onChatSelect: (id: number | null) => void
+}) {
+  const messages: CommunicationMessage[] = [
+    {
+      id: 1,
+      sender: "System Administrator",
+      time: "15:42:12",
+      message: "Scheduled maintenance will occur at 02:00. All systems will be temporarily offline.",
+      avatar: "/placeholder.svg?height=40&width=40",
+      type: "maintenance",
+      unread: true,
+      fullMessage: "Scheduled maintenance will occur at 02:00 UTC. All systems will be temporarily offline for approximately 30 minutes. Please ensure all critical operations are completed before this time. We apologize for any inconvenience.",
+    },
+    {
+      id: 2,
+      sender: "Security Module",
+      time: "14:30:45",
+      message: "Unusual login attempt blocked from IP 192.168.1.45. Added to watchlist.",
+      avatar: "/placeholder.svg?height=40&width=40",
+      type: "security",
+      unread: true,
+      fullMessage: "Unusual login attempt detected and blocked from IP address 192.168.1.45. Multiple failed authentication attempts were recorded. The IP has been automatically added to the security watchlist. No further action required at this time.",
+    },
+    {
+      id: 3,
+      sender: "Network Control",
+      time: "12:15:33",
+      message: "Bandwidth allocation adjusted for priority services during peak hours.",
+      avatar: "/placeholder.svg?height=40&width=40",
+      type: "network",
+      unread: true,
+      fullMessage: "Bandwidth allocation has been automatically adjusted for priority services during peak hours. Critical services are now receiving 60% of available bandwidth, with standard services allocated 30% and background tasks limited to 10%. This optimization will remain active until 18:00 UTC.",
+    },
+    {
+      id: 4,
+      sender: "Data Center",
+      time: "09:05:18",
+      message: "Backup verification complete. All data integrity checks passed.",
+      avatar: "/placeholder.svg?height=40&width=40",
+      type: "backup",
+      unread: true,
+      fullMessage: "Backup verification process completed successfully. All data integrity checks passed with 100% accuracy. Total backup size: 2.4 TB. Backup location: Secondary data center (DC-02). Next scheduled backup: Tomorrow at 02:00 UTC.",
+    },
+  ]
+
+  const getTypeColor = (type?: string) => {
+    switch (type) {
+      case "maintenance":
+        return "bg-amber-500 ring-amber-500/30"
+      case "security":
+        return "bg-red-500 ring-red-500/30"
+      case "network":
+        return "bg-blue-500 ring-blue-500/30"
+      case "backup":
+        return "bg-green-500 ring-green-500/30"
+      case "alert":
+        return "bg-amber-500 ring-amber-500/30"
+      default:
+        return "bg-cyan-500 ring-cyan-500/30"
+    }
+  }
+
+  const getTypeIcon = (type?: string) => {
+    switch (type) {
+      case "maintenance":
+        return <Settings className="h-3 w-3 text-amber-400" />
+      case "security":
+        return <Shield className="h-3 w-3 text-red-400" />
+      case "network":
+        return <Wifi className="h-3 w-3 text-blue-400" />
+      case "backup":
+        return <Download className="h-3 w-3 text-green-400" />
+      case "alert":
+        return <AlertCircle className="h-3 w-3 text-amber-400" />
+      default:
+        return <MessageSquare className="h-3 w-3 text-cyan-400" />
+    }
+  }
+
+  const selectedMessage = messages.find((m) => m.id === selectedChat)
+
+  return (
+    <>
+      <Card className="bg-slate-900/50 border-slate-700/50 backdrop-blur-sm overflow-hidden">
+        <CardHeader className="pb-2 flex flex-row items-center justify-between border-b border-slate-700/50">
+          <CardTitle className="text-slate-100 flex items-center text-base">
+            <MessageSquare className="mr-2 h-4 w-4 text-blue-500" />
+            Communications Log
+          </CardTitle>
+          <Badge variant="outline" className="bg-blue-500/20 text-blue-400 border-blue-500/50 text-xs">
+            <div className="h-1.5 w-1.5 rounded-full bg-blue-500 mr-1.5 animate-pulse"></div>
+            {messages.filter((m) => m.unread).length} New
+          </Badge>
+        </CardHeader>
+        <CardContent className="p-6">
+          {/* Timeline with dots */}
+          <div className="relative">
+            {/* Vertical line */}
+            <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gradient-to-b from-slate-700 via-slate-600 to-slate-700"></div>
+            
+            {/* Timeline dots */}
+            <div className="space-y-8">
+              {messages.map((msg, index) => (
+                <div key={msg.id} className="relative flex items-start gap-4">
+                  {/* Dot */}
+                  <button
+                    onClick={() => onChatSelect(msg.id === selectedChat ? null : msg.id)}
+                    className={`relative z-10 flex-shrink-0 w-12 h-12 rounded-full ${getTypeColor(msg.type)} ring-4 transition-all duration-300 hover:scale-110 hover:ring-8 ${
+                      selectedChat === msg.id ? "scale-110 ring-8 shadow-lg shadow-cyan-500/20" : ""
+                    } ${msg.unread ? "animate-pulse" : ""} flex items-center justify-center group cursor-pointer`}
+                  >
+                    <div className="text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                      {getTypeIcon(msg.type)}
+                    </div>
+                    {msg.unread && (
+                      <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-cyan-500 ring-2 ring-slate-900"></div>
+                    )}
+                  </button>
+                  
+                  {/* Content preview */}
+                  <div 
+                    className={`flex-1 pt-1 transition-all duration-300 ${
+                      selectedChat === msg.id ? "opacity-100" : "opacity-60 hover:opacity-100"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-semibold text-slate-200">{msg.sender}</span>
+                      <span className="text-xs text-slate-500 font-mono">{msg.time}</span>
+                      {msg.unread && (
+                        <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 text-[10px] px-1.5 py-0 h-4">
+                          NEW
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-400 line-clamp-2">{msg.message}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Chat Modal/Overlay */}
+      {selectedChat && selectedMessage && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => onChatSelect(null)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-lg shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="bg-gradient-to-r from-slate-800 to-slate-900 border-b border-slate-700 p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full ${getTypeColor(selectedMessage.type)} flex items-center justify-center`}>
+                  {getTypeIcon(selectedMessage.type)}
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-slate-100">{selectedMessage.sender}</div>
+                  <div className="text-xs text-slate-400 font-mono">{selectedMessage.time}</div>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-slate-400 hover:text-slate-100"
+                onClick={() => onChatSelect(null)}
+              >
+                <XCircle className="h-5 w-5" />
+              </Button>
+            </div>
+
+            {/* Message Content */}
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
+              <div className="space-y-4">
+                <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+                  <p className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">
+                    {selectedMessage.fullMessage || selectedMessage.message}
+                  </p>
+                </div>
+                
+                {/* Message metadata */}
+                <div className="flex items-center gap-4 text-xs text-slate-500 pt-2 border-t border-slate-700/50">
+                  <div className="flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    <span>Sent at {selectedMessage.time}</span>
+                  </div>
+                  {selectedMessage.type && (
+                    <Badge className={`${getTypeColor(selectedMessage.type)} text-white text-[10px] px-2 py-0.5`}>
+                      {selectedMessage.type.toUpperCase()}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-slate-800/50 border-t border-slate-700 p-4">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 border-slate-600 text-slate-300 hover:bg-slate-700"
+                >
+                  <MessageSquare className="h-4 w-4 mr-2" />
+                  Reply
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-slate-600 text-slate-300 hover:bg-slate-700"
+                >
+                  <Download className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 // Communication item component
 function CommunicationItem({
   sender,
@@ -2113,11 +2287,11 @@ function ActionButton({ icon: Icon, label }: { icon: LucideIcon; label: string }
 }
 
 // Add missing imports
-function Info(props) {
+function Info(props: React.ComponentProps<typeof AlertCircle>) {
   return <AlertCircle {...props} />
 }
 
-function Check(props) {
+function Check(props: React.ComponentProps<typeof Shield>) {
   return <Shield {...props} />
 }
 
@@ -2212,36 +2386,43 @@ function SystemFlowView({
           <div>Response: {comp.responseTime}ms</div>
           <div>Requests: {comp.requests.toLocaleString()}</div>
         </div>
-        {comp.id === "database" && comp.details && (
+        {comp.id === "database" && comp.details && "engine" in comp.details && (
           <div className="mt-2 text-xs text-slate-400 space-y-1 border-t border-slate-700/50 pt-2">
-            <div className="flex justify-between">
-              <span>Last backup</span>
-              <span
-                className={comp.details.lastBackupStatus === "failed" ? "text-red-400" : "text-green-400"}
-              >
-                {comp.details.lastBackupAt
-                  ? `${Math.floor((Date.now() - comp.details.lastBackupAt.getTime()) / 60000)}m ago`
-                  : "N/A"}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span>Replica</span>
-              <span
-                className={
-                  comp.details.replicaReady < comp.details.replicaCount ? "text-amber-400" : "text-green-400"
-                }
-              >
-                {comp.details.replicaReady}/{comp.details.replicaCount} ready
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span>Lag</span>
-              <span
-                className={(comp.details.replicationLagSeconds ?? 0) > 10 ? "text-amber-400" : "text-slate-200"}
-              >
-                {comp.details.replicationLagSeconds ?? "—"}s
-              </span>
-            </div>
+            {(() => {
+              const dbDetails = comp.details as DatabaseDetails
+              return (
+                <>
+                  <div className="flex justify-between">
+                    <span>Last backup</span>
+                    <span
+                      className={dbDetails.lastBackupStatus === "failed" ? "text-red-400" : "text-green-400"}
+                    >
+                      {dbDetails.lastBackupAt
+                        ? `${Math.floor((Date.now() - dbDetails.lastBackupAt.getTime()) / 60000)}m ago`
+                        : "N/A"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Replica</span>
+                    <span
+                      className={
+                        dbDetails.replicaReady < dbDetails.replicaCount ? "text-amber-400" : "text-green-400"
+                      }
+                    >
+                      {dbDetails.replicaReady}/{dbDetails.replicaCount} ready
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Lag</span>
+                    <span
+                      className={(dbDetails.replicationLagSeconds ?? 0) > 10 ? "text-amber-400" : "text-slate-200"}
+                    >
+                      {dbDetails.replicationLagSeconds ?? "—"}s
+                    </span>
+                  </div>
+                </>
+              )
+            })()}
           </div>
         )}
       </button>
@@ -2483,87 +2664,90 @@ function ComponentDetailView({ component }: { component: SystemComponent }) {
       )}
 
       {/* Database-specific tabs */}
-      {component.id === "database" && component.details && (
-        <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="bg-slate-800/50 p-1">
-            <TabsTrigger
-              value="overview"
-              className="data-[state=active]:bg-slate-700 data-[state=active]:text-cyan-400"
-            >
-              Overview
-            </TabsTrigger>
-            <TabsTrigger
-              value="replication"
-              className="data-[state=active]:bg-slate-700 data-[state=active]:text-cyan-400"
-            >
-              Replication
-            </TabsTrigger>
-            <TabsTrigger
-              value="backups"
-              className="data-[state=active]:bg-slate-700 data-[state=active]:text-cyan-400"
-            >
-              Backups
-            </TabsTrigger>
-            <TabsTrigger
-              value="storage"
-              className="data-[state=active]:bg-slate-700 data-[state=active]:text-cyan-400"
-            >
-              Storage
-            </TabsTrigger>
-          </TabsList>
+      {component.id === "database" && component.details && "engine" in component.details && (() => {
+        const dbDetails = component.details as DatabaseDetails
+        return (
+          <Tabs defaultValue="overview" className="w-full">
+            <TabsList className="bg-slate-800/50 p-1">
+              <TabsTrigger
+                value="overview"
+                className="data-[state=active]:bg-slate-700 data-[state=active]:text-cyan-400"
+              >
+                Overview
+              </TabsTrigger>
+              <TabsTrigger
+                value="replication"
+                className="data-[state=active]:bg-slate-700 data-[state=active]:text-cyan-400"
+              >
+                Replication
+              </TabsTrigger>
+              <TabsTrigger
+                value="backups"
+                className="data-[state=active]:bg-slate-700 data-[state=active]:text-cyan-400"
+              >
+                Backups
+              </TabsTrigger>
+              <TabsTrigger
+                value="storage"
+                className="data-[state=active]:bg-slate-700 data-[state=active]:text-cyan-400"
+              >
+                Storage
+              </TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="overview" className="mt-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <MiniStat
-                label="Engine"
-                value={`${component.details.engine}${component.details.version ? ` ${component.details.version}` : ""}`}
-              />
-              <MiniStat label="p95 Query" value={`${component.details.p95QueryMs ?? "—"} ms`} />
-              <MiniStat
-                label="Connections"
-                value={`${component.details.connectionsUsed ?? "—"}/${component.details.connectionsMax ?? "—"}`}
-              />
-            </div>
-          </TabsContent>
+            <TabsContent value="overview" className="mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <MiniStat
+                  label="Engine"
+                  value={`${dbDetails.engine}${dbDetails.version ? ` ${dbDetails.version}` : ""}`}
+                />
+                <MiniStat label="p95 Query" value={`${dbDetails.p95QueryMs ?? "—"} ms`} />
+                <MiniStat
+                  label="Connections"
+                  value={`${dbDetails.connectionsUsed ?? "—"}/${dbDetails.connectionsMax ?? "—"}`}
+                />
+              </div>
+            </TabsContent>
 
-          <TabsContent value="replication" className="mt-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <MiniStat
-                label="Replica Ready"
-                value={`${component.details.replicaReady}/${component.details.replicaCount}`}
-              />
-              <MiniStat label="Lag" value={`${component.details.replicationLagSeconds ?? "—"} s`} />
-              <MiniStat label="Role" value={component.details.primary ? "Primary" : "Replica"} />
-            </div>
-          </TabsContent>
+            <TabsContent value="replication" className="mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <MiniStat
+                  label="Replica Ready"
+                  value={`${dbDetails.replicaReady}/${dbDetails.replicaCount}`}
+                />
+                <MiniStat label="Lag" value={`${dbDetails.replicationLagSeconds ?? "—"} s`} />
+                <MiniStat label="Role" value={dbDetails.primary ? "Primary" : "Replica"} />
+              </div>
+            </TabsContent>
 
-          <TabsContent value="backups" className="mt-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <MiniStat
-                label="Last Backup"
-                value={component.details.lastBackupAt ? component.details.lastBackupAt.toLocaleString() : "N/A"}
-              />
-              <MiniStat label="Status" value={component.details.lastBackupStatus.toUpperCase()} />
-              <MiniStat label="RPO Target" value={`${component.details.backupRpoMinutes ?? "—"} min`} />
-            </div>
-          </TabsContent>
+            <TabsContent value="backups" className="mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <MiniStat
+                  label="Last Backup"
+                  value={dbDetails.lastBackupAt ? dbDetails.lastBackupAt.toLocaleString() : "N/A"}
+                />
+                <MiniStat label="Status" value={dbDetails.lastBackupStatus.toUpperCase()} />
+                <MiniStat label="RPO Target" value={`${dbDetails.backupRpoMinutes ?? "—"} min`} />
+              </div>
+            </TabsContent>
 
-          <TabsContent value="storage" className="mt-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <MiniStat label="Disk Used" value={`${component.details.diskUsedGb ?? "—"} GB`} />
-              <MiniStat label="Disk Total" value={`${component.details.diskTotalGb ?? "—"} GB`} />
-              <MiniStat
-                label="Free"
-                value={
-                  component.details.diskUsedGb != null && component.details.diskTotalGb != null
-                    ? `${component.details.diskTotalGb - component.details.diskUsedGb} GB`
-                    : "—"
-                }
-              />
-            </div>
-          </TabsContent>
-        </Tabs>
-      )}
+            <TabsContent value="storage" className="mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <MiniStat label="Disk Used" value={`${dbDetails.diskUsedGb ?? "—"} GB`} />
+                <MiniStat label="Disk Total" value={`${dbDetails.diskTotalGb ?? "—"} GB`} />
+                <MiniStat
+                  label="Free"
+                  value={
+                    dbDetails.diskUsedGb != null && dbDetails.diskTotalGb != null
+                      ? `${dbDetails.diskTotalGb - dbDetails.diskUsedGb} GB`
+                      : "—"
+                  }
+                />
+              </div>
+            </TabsContent>
+          </Tabs>
+        )
+      })()}
 
       {/* Metrics Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">

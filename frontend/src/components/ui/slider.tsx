@@ -1,8 +1,9 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
-export interface SliderProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "type"> {
+export interface SliderProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "type" | "defaultValue" | "value"> {
   value?: number[]
+  defaultValue?: number[]
   onValueChange?: (value: number[]) => void
   min?: number
   max?: number
@@ -10,8 +11,8 @@ export interface SliderProps extends Omit<React.InputHTMLAttributes<HTMLInputEle
 }
 
 const Slider = React.forwardRef<HTMLInputElement, SliderProps>(
-  ({ className, value, onValueChange, min = 0, max = 100, step = 1, ...props }, ref) => {
-    const [internalValue, setInternalValue] = React.useState(value || [50])
+  ({ className, value, defaultValue, onValueChange, min = 0, max = 100, step = 1, ...props }, ref) => {
+    const [internalValue, setInternalValue] = React.useState(value || defaultValue || [50])
     const controlled = value !== undefined
     const currentValue = controlled ? value : internalValue
     const sliderValue = currentValue[0] || 50
