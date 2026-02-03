@@ -7,16 +7,20 @@ export interface SwitchProps extends Omit<React.InputHTMLAttributes<HTMLInputEle
 }
 
 const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(
-  ({ className, checked, onCheckedChange, ...props }, ref) => {
-    const [internalChecked, setInternalChecked] = React.useState(checked || false)
+  ({ className, checked, defaultChecked, onCheckedChange, onChange, ...props }, ref) => {
     const controlled = checked !== undefined
-    const isChecked = controlled ? checked : internalChecked
+
+    const [internalChecked, setInternalChecked] = React.useState<boolean>(() => {
+      if (controlled) return Boolean(checked)
+      return Boolean(defaultChecked)
+    })
+
+    const isChecked = controlled ? Boolean(checked) : internalChecked
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      onChange?.(e)
       const newChecked = e.target.checked
-      if (!controlled) {
-        setInternalChecked(newChecked)
-      }
+      if (!controlled) setInternalChecked(newChecked)
       onCheckedChange?.(newChecked)
     }
 
@@ -25,7 +29,7 @@ const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(
         <input
           type="checkbox"
           ref={ref}
-          checked={isChecked}
+          {...(controlled ? { checked: isChecked } : { defaultChecked: Boolean(defaultChecked) })}
           onChange={handleChange}
           className="sr-only"
           {...props}

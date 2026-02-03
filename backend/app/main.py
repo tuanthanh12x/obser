@@ -1,20 +1,24 @@
 """
 FastAPI main application
 """
+import os
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from app.database import get_db, Base, engine
-import os
+from app.db import get_db, Base, engine
+from sqlalchemy import text
+
+# Import routers
+from app.api.v1.auth.router import router as auth_router
+from app.api.v1.projects.router import router as projects_router
 
 app = FastAPI(title="Backend API", version="1.0.0")
 
-# Create database tables
 @app.on_event("startup")
 async def startup():
-    Base.metadata.create_all(bind=engine)
 
-# CORS configuration - Allow frontend on port 80
+    pass
+
 cors_origins = os.getenv("CORS_ORIGINS", "http://localhost,http://localhost:80,http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
@@ -24,6 +28,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include API routers
+app.include_router(auth_router, prefix="/api/v1")
+app.include_router(projects_router, prefix="/api/v1")
+
 
 @app.get("/")
 async def root():
@@ -32,12 +40,8 @@ async def root():
 
 @app.get("/health")
 async def health(db: Session = Depends(get_db)):
-    """
-    Health check endpoint with database connection test
-    """
+
     try:
-        # Test database connection
-        from sqlalchemy import text
         db.execute(text("SELECT 1"))
         return {
             "status": "healthy",

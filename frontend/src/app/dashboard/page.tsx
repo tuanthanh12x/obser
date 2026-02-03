@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useRef, useMemo } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   Activity,
   AlertCircle,
@@ -48,6 +49,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
+import { getAccessToken } from "@/lib/api/tokenStorage"
+import { listProjects, type Project as ApiProject } from "@/lib/api/projects"
+import { getStoredProjectId, setStoredProjectId } from "@/lib/project/selection"
+import { ProjectSwitcher } from "@/components/project/project-switcher"
 
 // System component types
 type ComponentType = "cloudflare" | "frontend" | "backend" | "cache" | "openstack" | "database"
@@ -55,6 +60,21 @@ type ComponentType = "cloudflare" | "frontend" | "backend" | "cache" | "openstac
 type Health = "healthy" | "warning" | "error"
 
 type BackupStatus = "ok" | "running" | "failed" | "unknown"
+
+type PerfBar = {
+  cpuHeight: number
+  memHeight: number
+  netHeight: number
+}
+
+// Use a deterministic "now" for mock/demo data to keep rendering pure (lint rule `react-hooks/purity`).
+const MOCK_NOW_MS = Date.parse("2026-02-03T00:00:00Z")
+
+const DEFAULT_PERF_BARS: PerfBar[] = Array.from({ length: 24 }).map((_, i) => ({
+  cpuHeight: 25 + ((i * 7) % 55),
+  memHeight: 40 + ((i * 5) % 45),
+  netHeight: 30 + ((i * 3) % 40),
+}))
 
 interface DatabaseDetails {
   engine: "postgres" | "mysql" | "mongodb" | "redis" | "other"
@@ -157,14 +177,66 @@ interface ServiceLog {
 }
 
 export default function Dashboard() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
+  useEffect(() => {
+    if (!getAccessToken()) router.replace("/login")
+  }, [router])
+
+  // Projects context (selected project drives the dashboard view)
+  const [projects, setProjects] = useState<ApiProject[]>([])
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
+  const [projectLoadError, setProjectLoadError] = useState<string | null>(null)
+
+  const selectedProject = useMemo(() => {
+    if (selectedProjectId == null) return null
+    return projects.find((p) => p.id === selectedProjectId) ?? null
+  }, [projects, selectedProjectId])
+
+  useEffect(() => {
+    const token = getAccessToken()
+    if (!token) return
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        setProjectLoadError(null)
+        const data = await listProjects({ skip: 0, limit: 1000 })
+        if (cancelled) return
+        setProjects(data)
+
+        const qp = searchParams.get("projectId")
+        const qpId = qp ? Number(qp) : null
+        const storedId = getStoredProjectId()
+
+        const candidateIds = [qpId, storedId, data[0]?.id ?? null].filter(
+          (x): x is number => typeof x === "number" && Number.isFinite(x),
+        )
+        const nextId = candidateIds.find((id) => data.some((p) => p.id === id)) ?? null
+
+        setSelectedProjectId(nextId)
+        setStoredProjectId(nextId)
+      } catch (err: unknown) {
+        if (cancelled) return
+        setProjectLoadError(err instanceof Error ? err.message : "Failed to load projects")
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [searchParams])
+
   const [theme, setTheme] = useState<"dark" | "light">("dark")
   const [selectedChat, setSelectedChat] = useState<number | null>(null)
+  const [isChatOpen, setIsChatOpen] = useState(false)
   const [systemStatus, setSystemStatus] = useState(85)
   const [cpuUsage, setCpuUsage] = useState(42)
   const [memoryUsage, setMemoryUsage] = useState(68)
   const [networkStatus, setNetworkStatus] = useState(92)
   const [securityLevel, setSecurityLevel] = useState(75)
-  const [currentTime, setCurrentTime] = useState(new Date())
+  const [currentTime, setCurrentTime] = useState(() => new Date(MOCK_NOW_MS))
   const [isLoading, setIsLoading] = useState(true)
   const [viewMode, setViewMode] = useState<"full" | "component">("full")
   const [selectedComponent, setSelectedComponent] = useState<ComponentType | null>(null)
@@ -313,10 +385,10 @@ export default function Dashboard() {
       details: {
         engine: "postgres",
         version: "16.1",
-        lastBackupAt: new Date(Date.now() - 35 * 60 * 1000), // 35m ago
+        lastBackupAt: new Date(MOCK_NOW_MS - 35 * 60 * 1000), // 35m ago
         lastBackupStatus: "ok",
         backupRpoMinutes: 60,
-        nextBackupAt: new Date(Date.now() + 25 * 60 * 1000),
+        nextBackupAt: new Date(MOCK_NOW_MS + 25 * 60 * 1000),
 
         replicaCount: 2,
         replicaReady: 2,
@@ -341,56 +413,56 @@ export default function Dashboard() {
       url: "https://api.payment.com",
       status: "online",
       responseTime: 150,
-      lastCheck: new Date(),
+      lastCheck: new Date(MOCK_NOW_MS - 60_000),
     },
     {
       name: "Email Service",
       url: "https://api.email.com",
       status: "online",
       responseTime: 200,
-      lastCheck: new Date(),
+      lastCheck: new Date(MOCK_NOW_MS - 2 * 60_000),
     },
     {
       name: "SMS Service",
       url: "https://api.sms.com",
       status: "slow",
       responseTime: 850,
-      lastCheck: new Date(),
+      lastCheck: new Date(MOCK_NOW_MS - 3 * 60_000),
     },
     {
       name: "Analytics API",
       url: "https://api.analytics.com",
       status: "online",
       responseTime: 120,
-      lastCheck: new Date(),
+      lastCheck: new Date(MOCK_NOW_MS - 45_000),
     },
     {
       name: "OpenStack API - Production",
       url: "https://openstack-prod.example.com:5000/v3",
       status: "online",
       responseTime: 180,
-      lastCheck: new Date(),
+      lastCheck: new Date(MOCK_NOW_MS - 90_000),
     },
     {
       name: "OpenStack API - Staging",
       url: "https://openstack-staging.example.com:5000/v3",
       status: "online",
       responseTime: 220,
-      lastCheck: new Date(),
+      lastCheck: new Date(MOCK_NOW_MS - 2 * 60_000),
     },
     {
       name: "OpenStack API - Development",
       url: "https://openstack-dev.example.com:5000/v3",
       status: "slow",
       responseTime: 450,
-      lastCheck: new Date(),
+      lastCheck: new Date(MOCK_NOW_MS - 4 * 60_000),
     },
     {
       name: "OpenStack API - Testing",
       url: "https://openstack-test.example.com:5000/v3",
       status: "online",
       responseTime: 195,
-      lastCheck: new Date(),
+      lastCheck: new Date(MOCK_NOW_MS - 75_000),
     },
   ])
 
@@ -398,70 +470,70 @@ export default function Dashboard() {
   const [serviceLogs, setServiceLogs] = useState<ServiceLog[]>([
     {
       id: "1",
-      timestamp: new Date(Date.now() - 5000),
+      timestamp: new Date(MOCK_NOW_MS - 5000),
       level: "info",
       service: "Frontend",
       message: "User session established successfully",
     },
     {
       id: "2",
-      timestamp: new Date(Date.now() - 8000),
+      timestamp: new Date(MOCK_NOW_MS - 8000),
       level: "success",
       service: "Backend API",
       message: "API request processed successfully - 200 OK",
     },
     {
       id: "3",
-      timestamp: new Date(Date.now() - 12000),
+      timestamp: new Date(MOCK_NOW_MS - 12000),
       level: "warning",
       service: "Database",
       message: "Connection pool usage at 85% - consider scaling",
     },
     {
       id: "4",
-      timestamp: new Date(Date.now() - 15000),
+      timestamp: new Date(MOCK_NOW_MS - 15000),
       level: "info",
       service: "OpenStack",
       message: "Instance created: vm-12345",
     },
     {
       id: "5",
-      timestamp: new Date(Date.now() - 18000),
+      timestamp: new Date(MOCK_NOW_MS - 18000),
       level: "error",
       service: "Cache Layer",
       message: "Redis connection timeout - retrying...",
     },
     {
       id: "6",
-      timestamp: new Date(Date.now() - 22000),
+      timestamp: new Date(MOCK_NOW_MS - 22000),
       level: "debug",
       service: "Frontend",
       message: "Component render completed in 12ms",
     },
     {
       id: "7",
-      timestamp: new Date(Date.now() - 25000),
+      timestamp: new Date(MOCK_NOW_MS - 25000),
       level: "info",
       service: "Backend API",
       message: "Health check passed - all services operational",
     },
     {
       id: "8",
-      timestamp: new Date(Date.now() - 28000),
+      timestamp: new Date(MOCK_NOW_MS - 28000),
       level: "warning",
       service: "OpenStack",
       message: "High CPU usage detected on compute node 3",
     },
     {
       id: "9",
-      timestamp: new Date(Date.now() - 32000),
+      timestamp: new Date(MOCK_NOW_MS - 32000),
       level: "success",
       service: "Database",
       message: "Backup completed successfully - 2.3GB",
     },
     {
       id: "10",
-      timestamp: new Date(Date.now() - 35000),
+      timestamp: new Date(MOCK_NOW_MS - 35000),
       level: "info",
       service: "Cloudflare CDN",
       message: "Cache hit rate: 94.2%",
@@ -471,21 +543,13 @@ export default function Dashboard() {
   const [selectedLogService, setSelectedLogService] = useState<string>("all")
   const [logSearchQuery, setLogSearchQuery] = useState<string>("")
 
-  // Sync log service filter when component is selected (only in component view mode)
-  useEffect(() => {
-    if (viewMode === "component") {
-      if (selectedComponent) {
-        const component = components.find((c) => c.id === selectedComponent)
-        if (component) {
-          // Map component name to service name in logs
-          setSelectedLogService(component.name)
-        }
-      } else {
-        // Reset to "all" when no component is selected
-        setSelectedLogService("all")
-      }
+  const effectiveSelectedLogService = useMemo(() => {
+    if (viewMode === "component" && selectedComponent) {
+      const component = components.find((c) => c.id === selectedComponent)
+      return component?.name ?? "all"
     }
-  }, [selectedComponent, viewMode, components])
+    return selectedLogService
+  }, [components, selectedComponent, selectedLogService, viewMode])
 
   // Simulate data loading
   useEffect(() => {
@@ -665,6 +729,15 @@ export default function Dashboard() {
     canvas.width = canvas.offsetWidth
     canvas.height = canvas.offsetHeight
 
+    type Particle = {
+      x: number
+      y: number
+      size: number
+      speedX: number
+      speedY: number
+      color: string
+    }
+
     const particles: Particle[] = []
     const particleCount = 100
 
@@ -672,43 +745,34 @@ export default function Dashboard() {
     const canvasEl = canvas
     const ctxEl = ctx
 
-    class Particle {
-      x: number
-      y: number
-      size: number
-      speedX: number
-      speedY: number
-      color: string
+    const createParticle = (): Particle => ({
+      x: Math.random() * canvasEl.width,
+      y: Math.random() * canvasEl.height,
+      size: Math.random() * 3 + 1,
+      speedX: (Math.random() - 0.5) * 0.5,
+      speedY: (Math.random() - 0.5) * 0.5,
+      color: `rgba(${Math.floor(Math.random() * 100) + 100}, ${Math.floor(Math.random() * 100) + 150}, ${Math.floor(Math.random() * 55) + 200}, ${Math.random() * 0.5 + 0.2})`,
+    })
 
-      constructor() {
-        this.x = Math.random() * canvasEl.width
-        this.y = Math.random() * canvasEl.height
-        this.size = Math.random() * 3 + 1
-        this.speedX = (Math.random() - 0.5) * 0.5
-        this.speedY = (Math.random() - 0.5) * 0.5
-        this.color = `rgba(${Math.floor(Math.random() * 100) + 100}, ${Math.floor(Math.random() * 100) + 150}, ${Math.floor(Math.random() * 55) + 200}, ${Math.random() * 0.5 + 0.2})`
-      }
+    const updateParticle = (p: Particle) => {
+      p.x += p.speedX
+      p.y += p.speedY
 
-      update() {
-        this.x += this.speedX
-        this.y += this.speedY
+      if (p.x > canvasEl.width) p.x = 0
+      if (p.x < 0) p.x = canvasEl.width
+      if (p.y > canvasEl.height) p.y = 0
+      if (p.y < 0) p.y = canvasEl.height
+    }
 
-        if (this.x > canvasEl.width) this.x = 0
-        if (this.x < 0) this.x = canvasEl.width
-        if (this.y > canvasEl.height) this.y = 0
-        if (this.y < 0) this.y = canvasEl.height
-      }
-
-      draw() {
-        ctxEl.fillStyle = this.color
-        ctxEl.beginPath()
-        ctxEl.arc(this.x, this.y, this.size, 0, Math.PI * 2)
-        ctxEl.fill()
-      }
+    const drawParticle = (p: Particle) => {
+      ctxEl.fillStyle = p.color
+      ctxEl.beginPath()
+      ctxEl.arc(p.x, p.y, p.size, 0, Math.PI * 2)
+      ctxEl.fill()
     }
 
     for (let i = 0; i < particleCount; i++) {
-      particles.push(new Particle())
+      particles.push(createParticle())
     }
 
     function animate() {
@@ -716,8 +780,8 @@ export default function Dashboard() {
       ctx.clearRect(0, 0, canvas.width, canvas.height)
 
       for (const particle of particles) {
-        particle.update()
-        particle.draw()
+        updateParticle(particle)
+        drawParticle(particle)
       }
 
       requestAnimationFrame(animate)
@@ -762,6 +826,12 @@ export default function Dashboard() {
     })
   }
 
+  const selectProjectId = (nextId: number) => {
+    setSelectedProjectId(nextId)
+    setStoredProjectId(nextId)
+    router.replace(`/dashboard?projectId=${nextId}`)
+  }
+
   return (
     <div
       className={`${theme} min-h-screen bg-gradient-to-br from-black to-slate-900 text-slate-100 relative overflow-hidden`}
@@ -788,14 +858,33 @@ export default function Dashboard() {
       <div className="container mx-auto p-3 xl:p-4 relative z-10 max-w-[2537px]">
         {/* Header */}
         <header className="flex items-center justify-between py-3 border-b border-slate-700/50 mb-4">
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 min-w-0">
             <Hexagon className="h-8 w-8 text-cyan-500" />
-            <span className="text-xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+            <span className="text-xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent shrink-0">
               Greencloud Monitor
             </span>
+            {selectedProject ? (
+              <span className="hidden md:inline-flex items-center rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-xs text-cyan-100 min-w-0">
+                <span className="truncate"> {selectedProject.display_name}</span>
+                <span className="ml-2 rounded-md border border-slate-700/60 bg-slate-900/40 px-1.5 py-0.5 text-[11px] font-mono text-slate-200">
+                  {selectedProject.code}
+                </span>
+              </span>
+            ) : null}
           </div>
 
           <div className="flex items-center space-x-6">
+            <div className="hidden lg:block">
+              <ProjectSwitcher
+                projects={projects}
+                selectedProjectId={selectedProjectId}
+                onSelectProjectId={selectProjectId}
+                onManageProjects={() => router.push("/dashboard/projects")}
+                disabled={Boolean(projectLoadError)}
+                error={projectLoadError}
+              />
+            </div>
+
             <div className="hidden md:flex items-center space-x-1 bg-slate-800/50 rounded-full px-3 py-1.5 border border-slate-700/50 backdrop-blur-sm">
               <Search className="h-4 w-4 text-slate-400" />
               <input
@@ -806,6 +895,15 @@ export default function Dashboard() {
             </div>
 
             <div className="flex items-center space-x-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => router.push("/dashboard/projects")}
+                className="hidden md:inline-flex border-slate-700/50 bg-slate-900/40 text-slate-200 hover:bg-slate-800/60"
+              >
+                Projects
+              </Button>
+
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -845,6 +943,30 @@ export default function Dashboard() {
             </div>
           </div>
         </header>
+
+        {projectLoadError ? (
+          <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            Failed to load projects: {projectLoadError}
+          </div>
+        ) : null}
+
+        {!projectLoadError && projects.length === 0 ? (
+          <Card className="bg-slate-900/50 border-slate-700/50 backdrop-blur-sm mb-4">
+            <CardContent className="p-4 flex items-center justify-between">
+              <div>
+                <div className="text-slate-100 font-medium">No projects yet</div>
+                <div className="text-xs text-slate-400">Create a project first, then come back to a project dashboard.</div>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => router.push("/dashboard/projects")}
+                className="border-slate-700/50 bg-slate-900/40 text-slate-200 hover:bg-slate-800/60"
+              >
+                Go to Projects
+              </Button>
+            </CardContent>
+          </Card>
+        ) : null}
 
         {/* Main content */}
         <div className="grid grid-cols-12 gap-4">
@@ -954,7 +1076,7 @@ export default function Dashboard() {
                       <CardContent className="p-4">
                         <ServiceLogsView
                           logs={serviceLogs}
-                          selectedService={selectedLogService}
+                          selectedService={effectiveSelectedLogService}
                           onServiceChange={setSelectedLogService}
                           searchQuery={logSearchQuery}
                           onSearchChange={setLogSearchQuery}
@@ -1120,7 +1242,7 @@ export default function Dashboard() {
                         <div className="flex items-center justify-between text-xs">
                           <span className="text-slate-400">Last 5min</span>
                           <span className="text-cyan-400 font-mono">
-                            {serviceLogs.filter((l) => Date.now() - l.timestamp.getTime() < 300000).length}
+                            {serviceLogs.filter((l) => currentTime.getTime() - l.timestamp.getTime() < 300000).length}
                           </span>
                         </div>
                       </CardContent>
@@ -1224,7 +1346,7 @@ export default function Dashboard() {
                       <CardContent className="p-4">
                         <ServiceLogsView
                           logs={serviceLogs}
-                          selectedService={selectedLogService}
+                          selectedService={effectiveSelectedLogService}
                           onServiceChange={setSelectedLogService}
                           searchQuery={logSearchQuery}
                           onSearchChange={setLogSearchQuery}
@@ -1495,8 +1617,6 @@ export default function Dashboard() {
                 </Card>
               </div>
 
-              {/* Communications */}
-              <CommunicationTimelineView selectedChat={selectedChat} onChatSelect={setSelectedChat} />
             </div>
           </div>
 
@@ -1647,6 +1767,14 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Chat Bubble - Always visible at bottom right */}
+      <ChatBubble 
+        isOpen={isChatOpen} 
+        onToggle={() => setIsChatOpen(!isChatOpen)}
+        selectedChat={selectedChat}
+        onChatSelect={setSelectedChat}
+      />
     </div>
   )
 }
@@ -1756,6 +1884,8 @@ function MetricCard({
 
 // Performance chart component
 function PerformanceChart() {
+  const bars = DEFAULT_PERF_BARS
+
   return (
     <div className="h-full w-full flex items-end justify-between px-4 pt-4 pb-8 relative">
       {/* Y-axis labels */}
@@ -1778,24 +1908,20 @@ function PerformanceChart() {
 
       {/* Chart bars */}
       <div className="flex-1 h-full flex items-end justify-between px-2 z-10">
-        {Array.from({ length: 24 }).map((_, i) => {
-          const cpuHeight = Math.floor(Math.random() * 60) + 20
-          const memHeight = Math.floor(Math.random() * 40) + 40
-          const netHeight = Math.floor(Math.random() * 30) + 30
-
+        {bars.map((bar, i) => {
           return (
             <div key={i} className="flex space-x-0.5">
               <div
                 className="w-1 bg-gradient-to-t from-cyan-500 to-cyan-400 rounded-t-sm"
-                style={{ height: `${cpuHeight}%` }}
+                style={{ height: `${bar.cpuHeight}%` }}
               ></div>
               <div
                 className="w-1 bg-gradient-to-t from-purple-500 to-purple-400 rounded-t-sm"
-                style={{ height: `${memHeight}%` }}
+                style={{ height: `${bar.memHeight}%` }}
               ></div>
               <div
                 className="w-1 bg-gradient-to-t from-blue-500 to-blue-400 rounded-t-sm"
-                style={{ height: `${netHeight}%` }}
+                style={{ height: `${bar.netHeight}%` }}
               ></div>
             </div>
           )
@@ -1953,10 +2079,15 @@ interface CommunicationMessage {
   fullMessage?: string
 }
 
-function CommunicationTimelineView({
+// Chat Bubble Component - Floating button with chat window
+function ChatBubble({
+  isOpen,
+  onToggle,
   selectedChat,
   onChatSelect,
 }: {
+  isOpen: boolean
+  onToggle: () => void
   selectedChat: number | null
   onChatSelect: (id: number | null) => void
 }) {
@@ -2038,73 +2169,87 @@ function CommunicationTimelineView({
   }
 
   const selectedMessage = messages.find((m) => m.id === selectedChat)
+  const unreadCount = messages.filter((m) => m.unread).length
 
   return (
     <>
-      <Card className="bg-slate-900/50 border-slate-700/50 backdrop-blur-sm overflow-hidden">
-        <CardHeader className="pb-2 flex flex-row items-center justify-between border-b border-slate-700/50">
-          <CardTitle className="text-slate-100 flex items-center text-base">
-            <MessageSquare className="mr-2 h-4 w-4 text-blue-500" />
-            Communications Log
-          </CardTitle>
-          <Badge variant="outline" className="bg-blue-500/20 text-blue-400 border-blue-500/50 text-xs">
-            <div className="h-1.5 w-1.5 rounded-full bg-blue-500 mr-1.5 animate-pulse"></div>
-            {messages.filter((m) => m.unread).length} New
-          </Badge>
-        </CardHeader>
-        <CardContent className="p-6">
-          {/* Timeline with dots */}
-          <div className="relative">
-            {/* Vertical line */}
-            <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gradient-to-b from-slate-700 via-slate-600 to-slate-700"></div>
-            
-            {/* Timeline dots */}
-            <div className="space-y-8">
-              {messages.map((msg, index) => (
-                <div key={msg.id} className="relative flex items-start gap-4">
-                  {/* Dot */}
-                  <button
-                    onClick={() => onChatSelect(msg.id === selectedChat ? null : msg.id)}
-                    className={`relative z-10 flex-shrink-0 w-12 h-12 rounded-full ${getTypeColor(msg.type)} ring-4 transition-all duration-300 hover:scale-110 hover:ring-8 ${
-                      selectedChat === msg.id ? "scale-110 ring-8 shadow-lg shadow-cyan-500/20" : ""
-                    } ${msg.unread ? "animate-pulse" : ""} flex items-center justify-center group cursor-pointer`}
-                  >
-                    <div className="text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                      {getTypeIcon(msg.type)}
-                    </div>
-                    {msg.unread && (
-                      <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-cyan-500 ring-2 ring-slate-900"></div>
-                    )}
-                  </button>
-                  
-                  {/* Content preview */}
-                  <div 
-                    className={`flex-1 pt-1 transition-all duration-300 ${
-                      selectedChat === msg.id ? "opacity-100" : "opacity-60 hover:opacity-100"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-semibold text-slate-200">{msg.sender}</span>
-                      <span className="text-xs text-slate-500 font-mono">{msg.time}</span>
-                      {msg.unread && (
-                        <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 text-[10px] px-1.5 py-0 h-4">
-                          NEW
-                        </Badge>
-                      )}
+      {/* Floating Chat Bubble Button */}
+      <button
+        onClick={onToggle}
+        className="fixed bottom-6 right-6 z-40 w-16 h-16 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-full shadow-2xl hover:shadow-cyan-500/50 transition-all duration-300 hover:scale-110 flex items-center justify-center group"
+        aria-label="Open chat"
+      >
+        <MessageSquare className="h-6 w-6 text-white" />
+        {unreadCount > 0 && (
+          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center ring-2 ring-slate-900 animate-pulse">
+            {unreadCount > 9 ? '9+' : unreadCount}
+          </span>
+        )}
+      </button>
+
+      {/* Chat Window */}
+      {isOpen && (
+        <div className="fixed bottom-24 right-6 z-50 w-96 h-[600px] bg-slate-900 border border-slate-700 rounded-lg shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-slate-800 to-slate-900 border-b border-slate-700 p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <MessageSquare className="h-5 w-5 text-cyan-400" />
+              <div>
+                <div className="text-sm font-semibold text-slate-100">Communications</div>
+                <div className="text-xs text-slate-400">
+                  {unreadCount > 0 ? `${unreadCount} new message${unreadCount > 1 ? 's' : ''}` : 'No new messages'}
+                </div>
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-slate-400 hover:text-slate-100 h-8 w-8"
+              onClick={onToggle}
+            >
+              <XCircle className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {/* Messages List */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {messages.map((msg) => (
+              <div
+                key={msg.id}
+                onClick={() => onChatSelect(msg.id === selectedChat ? null : msg.id)}
+                className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                  selectedChat === msg.id
+                    ? 'bg-cyan-500/10 border-cyan-500/50'
+                    : 'bg-slate-800/50 border-slate-700/50 hover:bg-slate-800/70'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className={`w-8 h-8 rounded-full ${getTypeColor(msg.type)} flex items-center justify-center flex-shrink-0`}>
+                    {getTypeIcon(msg.type)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="text-sm font-semibold text-slate-200 truncate">{msg.sender}</div>
+                      <div className="text-xs text-slate-500 font-mono flex-shrink-0 ml-2">{msg.time}</div>
                     </div>
                     <p className="text-xs text-slate-400 line-clamp-2">{msg.message}</p>
+                    {msg.unread && (
+                      <Badge className="mt-1 bg-cyan-500/20 text-cyan-400 border-cyan-500/30 text-[10px] px-1.5 py-0 h-4">
+                        NEW
+                      </Badge>
+                    )}
                   </div>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      )}
 
-      {/* Chat Modal/Overlay */}
+      {/* Message Detail Modal */}
       {selectedChat && selectedMessage && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4 animate-in fade-in duration-200"
           onClick={() => onChatSelect(null)}
         >
           <div
@@ -2398,7 +2543,7 @@ function SystemFlowView({
                       className={dbDetails.lastBackupStatus === "failed" ? "text-red-400" : "text-green-400"}
                     >
                       {dbDetails.lastBackupAt
-                        ? `${Math.floor((Date.now() - dbDetails.lastBackupAt.getTime()) / 60000)}m ago`
+                        ? `${Math.floor((MOCK_NOW_MS - dbDetails.lastBackupAt.getTime()) / 60000)}m ago`
                         : "N/A"}
                     </span>
                   </div>

@@ -8,7 +8,7 @@ services:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=obser_db
     ports:
-      - "5432:5432"
+      - "5433:5432"  # Map port 5433 trên host -> 5432 trong container
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -97,10 +97,9 @@ services:
     container_name: obser-celery-beat-dev
     image: obser-backend-dev
     init: true
-    command: celery -A app.celery:celery_app beat --loglevel=info
+    command: sh -c "mkdir -p /app/.celery && celery -A app.celery:celery_app beat --loglevel=info --schedule=/app/.celery/celerybeat-schedule"
     volumes:
       - ./backend:/app
-      - beat_state:/app/celerybeat-schedule
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/obser_db
       - REDIS_URL=redis://redis:6379/0
@@ -144,4 +143,3 @@ services:
 volumes:
   redis_data:
   postgres_data:
-  beat_state:
