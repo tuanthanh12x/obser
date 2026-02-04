@@ -19,7 +19,14 @@ async def startup():
 
     pass
 
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost,http://localhost:80,http://localhost:3000").split(",")
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost,http://localhost:80,http://localhost:3000",
+    ).split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
