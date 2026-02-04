@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useRef, useMemo } from "react"
+import { Suspense, useEffect, useState, useRef, useMemo } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   Activity,
@@ -176,7 +176,15 @@ interface ServiceLog {
   message: string
 }
 
-export default function Dashboard() {
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={null}>
+      <Dashboard />
+    </Suspense>
+  )
+}
+
+function Dashboard() {
   const router = useRouter()
   const searchParams = useSearchParams()
 

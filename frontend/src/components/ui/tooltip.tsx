@@ -51,27 +51,29 @@ const TooltipTrigger = React.forwardRef<
   
   const handleMouseEnter = () => setOpen(true)
   const handleMouseLeave = () => setOpen(false)
+
+  const {
+    onMouseEnter: propsOnMouseEnter,
+    onMouseLeave: propsOnMouseLeave,
+    ...restProps
+  } = props
   
   if (asChild && React.isValidElement(children)) {
-    const childElement = children as React.ReactElement<{
-      onMouseEnter?: (e: React.MouseEvent) => void
-      onMouseLeave?: (e: React.MouseEvent) => void
-    }>
+    // `asChild` can be any element type; keep typing flexible so event handlers compose cleanly.
+    const childElement = children as React.ReactElement<any>
     const childProps = childElement.props
     return React.cloneElement(childElement, {
-      onMouseEnter: (e: React.MouseEvent) => {
+      ...restProps,
+      onMouseEnter: (e: React.MouseEvent<any>) => {
         handleMouseEnter()
-        if (childProps.onMouseEnter) {
-          childProps.onMouseEnter(e)
-        }
+        propsOnMouseEnter?.(e as any)
+        childProps.onMouseEnter?.(e)
       },
-      onMouseLeave: (e: React.MouseEvent) => {
+      onMouseLeave: (e: React.MouseEvent<any>) => {
         handleMouseLeave()
-        if (childProps.onMouseLeave) {
-          childProps.onMouseLeave(e)
-        }
+        propsOnMouseLeave?.(e as any)
+        childProps.onMouseLeave?.(e)
       },
-      ...props,
     })
   }
   
@@ -79,9 +81,15 @@ const TooltipTrigger = React.forwardRef<
     <div
       ref={ref}
       className={className}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      {...props}
+      {...restProps}
+      onMouseEnter={(e) => {
+        handleMouseEnter()
+        propsOnMouseEnter?.(e)
+      }}
+      onMouseLeave={(e) => {
+        handleMouseLeave()
+        propsOnMouseLeave?.(e)
+      }}
     >
       {children}
     </div>
