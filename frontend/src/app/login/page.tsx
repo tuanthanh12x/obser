@@ -95,7 +95,10 @@ export default function LoginPage() {
             </Button>
 
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              API base URL: <code className="rounded bg-zinc-100 px-1 py-0.5 dark:bg-zinc-900">{process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}</code>
+              API base URL:{" "}
+              <code className="rounded bg-zinc-100 px-1 py-0.5 dark:bg-zinc-900">
+                {"(same-origin) /api/*"}
+              </code>
             </p>
           </form>
         </CardContent>

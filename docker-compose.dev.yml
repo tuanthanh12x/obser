@@ -1,3 +1,5 @@
+name: obser-dev
+
 services:
   # PostgreSQL Database
   postgres:
@@ -131,7 +133,8 @@ services:
       - /app/.next
     environment:
       - NODE_ENV=development
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      # Client now uses same-origin; Next proxies /api/* to backend (server-side).
+      - API_PROXY_TARGET=http://backend:8000
       - CHOKIDAR_USEPOLLING=true
       - WATCHPACK_POLLING=true
     stdin_open: true

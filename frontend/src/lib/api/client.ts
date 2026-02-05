@@ -2,7 +2,9 @@ import axios, { AxiosError, AxiosInstance, AxiosResponse, InternalAxiosRequestCo
 
 import { clearTokens, getAccessToken, getRefreshToken, setAccessToken } from "@/lib/api/tokenStorage";
 
-const baseURL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Prefer same-origin requests and let Next.js proxy `/api/*` to the backend.
+// This avoids CORS issues and avoids hardcoding hostnames/IPs into the client bundle.
+const baseURL = "";
 
 type RefreshResponse = {
   access_token: string;

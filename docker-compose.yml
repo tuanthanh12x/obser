@@ -1,17 +1,19 @@
+name: obser-prod
+
 services:
   # PostgreSQL Database
   postgres:
     image: postgres:16-alpine
-    container_name: postgres
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
       - POSTGRES_DB=${POSTGRES_DB:-obser_db}
     ports:
-      - "5432:5432"
+      # Host port is configurable to avoid clashing with a local Postgres install.
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
-      - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # Use a named volume for portability (bind mounts can break permissions on Windows).
+      - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
@@ -22,11 +24,9 @@ services:
   # Redis - Message broker for Celery and cache
   redis:
     image: redis:7-alpine
-    container_name: redis
-    ports:
-      - "6379:6379"
     volumes:
-      - ./data/redis:/data
+      # Use a named volume for portability (bind mounts can be problematic on Windows).
+      - redis_data:/data
     command: redis-server --appendonly yes
     restart: unless-stopped
     healthcheck:
@@ -40,7 +40,6 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: backend
     ports:
       - "8000:8000"
     environment:
@@ -57,6 +56,8 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    # Ensure schema exists before serving requests.
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 8"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -68,7 +69,6 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.celery
-    container_name: celery-worker
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-obser_db}
       - REDIS_URL=redis://redis:6379/0
@@ -89,7 +89,6 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.celery-beat
-    container_name: celery-beat
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-obser_db}
       - REDIS_URL=redis://redis:6379/0
@@ -118,21 +117,22 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        # Public API base URL (inlined into the Next.js client bundle at build time)
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://167.253.157.89:8000}
-    container_name: frontend
+        # Kept for backward compatibility; client now prefers same-origin + proxy.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
     ports:
       - "80:3000"
     environment:
       - NODE_ENV=production
+      # Next.js will proxy /api/* to this target (server-side), avoiding CORS in the browser.
+      - API_PROXY_TARGET=${API_PROXY_TARGET:-http://backend:8000}
     depends_on:
       - backend
     restart: unless-stopped
 
   # Prometheus - Monitoring
   prometheus:
+    profiles: ["monitoring"]
     image: prom/prometheus:latest
-    container_name: prometheus
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./data/prometheus:/prometheus
@@ -145,8 +145,8 @@ services:
 
   # Grafana - Visualization
   grafana:
+    profiles: ["monitoring"]
     image: grafana/grafana:latest
-    container_name: grafana
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin123
@@ -158,3 +158,7 @@ services:
     restart: unless-stopped
     depends_on:
       - prometheus
+
+volumes:
+  postgres_data:
+  redis_data:
