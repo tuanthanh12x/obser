@@ -1,5 +1,3 @@
-name: obser-dev
-
 services:
   # PostgreSQL Database
   postgres:
