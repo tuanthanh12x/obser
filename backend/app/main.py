@@ -12,7 +12,14 @@ from sqlalchemy import text
 from app.api.v1.auth.router import router as auth_router
 from app.api.v1.projects.router import router as projects_router
 
-app = FastAPI(title="Backend API", version="1.0.0")
+app = FastAPI(
+    title="Backend API",
+    version="1.0.0",
+    # Disable automatic redirect for trailing slashes to prevent Location headers
+    # from exposing internal Docker hostnames (e.g., http://backend:8000) when
+    # requests go through a proxy. Accept both /api/v1/projects and /api/v1/projects/.
+    redirect_slashes=False,
+)
 
 @app.on_event("startup")
 async def startup():
@@ -29,7 +36,8 @@ cors_origins = [
 ]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    # allow_origins=cors_origins,
+allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

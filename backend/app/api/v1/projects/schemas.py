@@ -32,3 +32,19 @@ class ProjectRead(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime] = None
 
+
+class ProjectMemberCreate(BaseModel):
+    user_id: int = Field(gt=0)
+    role: str = Field(default="member", max_length=32)
+
+
+class ProjectMemberRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    user_id: int
+    role: str
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    user_email: Optional[str] = None

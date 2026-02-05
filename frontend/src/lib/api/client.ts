@@ -28,7 +28,11 @@ function processQueue(err: unknown, token: string | null) {
   failedQueue = [];
 }
 
-const rawClient = axios.create({ baseURL });
+const rawClient = axios.create({
+  baseURL,
+  maxRedirects: 0,
+  validateStatus: (status) => status >= 200 && status < 400,
+});
 
 async function refreshAccessToken(): Promise<string> {
   const refreshToken = getRefreshToken();
@@ -48,6 +52,11 @@ async function refreshAccessToken(): Promise<string> {
 export const apiClient: AxiosInstance = axios.create({
   baseURL,
   timeout: 30_000,
+  // Disable redirect following to prevent axios from following Location headers
+  // that might contain internal Docker hostnames (e.g., http://backend:8000).
+  // Next.js rewrite proxy handles routing, so we should never see redirects.
+  maxRedirects: 0,
+  validateStatus: (status) => status >= 200 && status < 400, // Accept 2xx and 3xx without following
 });
 
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {

@@ -76,6 +76,23 @@ const DEFAULT_PERF_BARS: PerfBar[] = Array.from({ length: 24 }).map((_, i) => ({
   netHeight: 30 + ((i * 3) % 40),
 }))
 
+function formatTime(date: Date | null | undefined) {
+  if (!date || !(date instanceof Date) || Number.isNaN(date.getTime())) return "—"
+  // Deterministic time string (UTC) to avoid SSR hydration mismatches.
+  return date.toISOString().slice(11, 19) // HH:MM:SS
+}
+
+function formatDate(date: Date | null | undefined) {
+  if (!date || !(date instanceof Date) || Number.isNaN(date.getTime())) return "—"
+  // Deterministic date string (UTC) to avoid SSR hydration mismatches.
+  return new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(date)
+}
+
 interface DatabaseDetails {
   engine: "postgres" | "mysql" | "mongodb" | "redis" | "other"
   version?: string
@@ -813,25 +830,6 @@ function Dashboard() {
   // Toggle theme
   const toggleTheme = () => {
     setTheme(theme === "dark" ? "light" : "dark")
-  }
-
-  // Format time
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString("en-US", {
-      hour12: false,
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    })
-  }
-
-  // Format date
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
   }
 
   const selectProjectId = (nextId: number) => {
@@ -2738,10 +2736,7 @@ function ExternalAPIItem({ api }: { api: ExternalAPI }) {
         <div className="flex items-center justify-between text-xs">
           <span className="text-slate-400">Last Check</span>
           <span className="text-slate-500 text-[10px]">
-            {api.lastCheck.toLocaleTimeString("en-US", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
+            {formatTime(api.lastCheck)}
           </span>
         </div>
       </div>
@@ -2877,7 +2872,11 @@ function ComponentDetailView({ component }: { component: SystemComponent }) {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <MiniStat
                   label="Last Backup"
-                  value={dbDetails.lastBackupAt ? dbDetails.lastBackupAt.toLocaleString() : "N/A"}
+                  value={
+                    dbDetails.lastBackupAt
+                      ? `${formatDate(dbDetails.lastBackupAt)} ${formatTime(dbDetails.lastBackupAt)}`
+                      : "N/A"
+                  }
                 />
                 <MiniStat label="Status" value={dbDetails.lastBackupStatus.toUpperCase()} />
                 <MiniStat label="RPO Target" value={`${dbDetails.backupRpoMinutes ?? "—"} min`} />
@@ -3028,15 +3027,6 @@ function ServiceLogsView({
       default:
         return "text-blue-400 bg-blue-500/10 border-blue-500/30"
     }
-  }
-
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString("en-US", {
-      hour12: false,
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    })
   }
 
   return (
